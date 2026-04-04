@@ -3,17 +3,18 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, MessageSquare, BookOpen,
-  Users, Scale, Bot, Activity, ChevronRight
+  Users, Scale, Bot, Activity, ChevronRight, FlaskConical
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
 const nav = [
-  { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Chats', href: '/chat', icon: MessageSquare },
-  { label: 'Corpus RAG', href: '/corpus', icon: BookOpen },
-  { label: 'Usuarios', href: '/users', icon: Users },
-  { label: 'Abogados', href: '/lawyers', icon: Scale },
-  { label: 'Agentes', href: '/team', icon: Bot },
+  { label: 'Overview',   href: '/dashboard',  icon: LayoutDashboard },
+  { label: 'Chats',      href: '/chat',        icon: MessageSquare },
+  { label: 'Playground', href: '/playground',  icon: FlaskConical },
+  { label: 'Corpus RAG', href: '/corpus',      icon: BookOpen },
+  { label: 'Usuarios',   href: '/users',       icon: Users },
+  { label: 'Abogados',   href: '/lawyers',     icon: Scale },
+  { label: 'Agentes',    href: '/team',        icon: Bot },
 ]
 
 export default function Sidebar() {
