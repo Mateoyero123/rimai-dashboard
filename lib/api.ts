@@ -78,6 +78,63 @@ export async function uploadLegalDocument(file: File, category: string, sourceNa
   return res.json()
 }
 
+// ── Document Builder ──────────────────────────────────────────────────────────
+export async function uploadDocumentFile(file: File, sessionId?: string) {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (sessionId) formData.append('session_id', sessionId)
+
+  const res = await fetch(`${API_URL}/api/v1/documents/upload`, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!res.ok) throw new Error(`Upload error: ${res.status}`)
+  return res.json() as Promise<{ file_id: string; filename: string; content_type: string; size_bytes: number; preview?: string }>
+}
+
+export async function streamBuilderMessage(
+  sessionId: string,
+  message: string,
+  fileIds: string[],
+  onToken: (token: string) => void,
+  onDone: () => void,
+  onError: (err: string) => void,
+) {
+  const res = await fetch(`${API_URL}/api/v1/documents/builder/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, message, file_ids: fileIds }),
+  })
+
+  if (!res.ok || !res.body) {
+    onError(`Error ${res.status}`)
+    return
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const payload = line.slice(6)
+      if (payload === '[DONE]') { onDone(); return }
+      onToken(payload.replace(/\\n/g, '\n'))
+    }
+  }
+  onDone()
+}
+
+export async function clearBuilderSession(sessionId: string) {
+  return fetchAPI(`/api/v1/documents/builder/${sessionId}`, { method: 'DELETE' })
+}
+
 // ── Team Agents ───────────────────────────────────────────────────────────────
 export async function runTeamTask(team: string, description: string, context?: Record<string, unknown>) {
   return fetchAPI('/api/v1/internal/team/task', {
