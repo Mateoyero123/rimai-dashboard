@@ -9,11 +9,11 @@ import { clsx } from 'clsx'
 
 const nav = [
   { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Chats', href: '/dashboard/chat', icon: MessageSquare },
-  { label: 'Corpus RAG', href: '/dashboard/corpus', icon: BookOpen },
-  { label: 'Usuarios', href: '/dashboard/users', icon: Users },
-  { label: 'Abogados', href: '/dashboard/lawyers', icon: Scale },
-  { label: 'Agentes', href: '/dashboard/team', icon: Bot },
+  { label: 'Chats', href: '/chat', icon: MessageSquare },
+  { label: 'Corpus RAG', href: '/corpus', icon: BookOpen },
+  { label: 'Usuarios', href: '/users', icon: Users },
+  { label: 'Abogados', href: '/lawyers', icon: Scale },
+  { label: 'Agentes', href: '/team', icon: Bot },
 ]
 
 export default function Sidebar() {
@@ -37,7 +37,7 @@ export default function Sidebar() {
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-1">
         {nav.map(({ label, href, icon: Icon }) => {
-          const active = path === href || (href !== '/dashboard' && path.startsWith(href))
+          const active = path === href || (href !== '/' && path.startsWith(href))
           return (
             <Link
               key={href}
