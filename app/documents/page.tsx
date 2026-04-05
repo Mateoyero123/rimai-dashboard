@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react'
 import {
   Send, Loader2, Trash2, FileText, ImageIcon, Upload,
   X, Copy, Check, FileUp, RotateCcw, ScrollText,
-  Download, Pencil, Save, ChevronRight, PanelRight
+  FileDown, Pencil, Save, ChevronRight, PanelRight, Printer
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { uploadDocumentFile, streamBuilderMessage, clearBuilderSession } from '@/lib/api'
@@ -45,29 +45,139 @@ const EXAMPLE_STARTS = [
 
 function isDocumentContent(text: string) {
   return text.length > 300 && (
-    text.includes('CONTRATO') ||
-    text.includes('CARTA') ||
-    text.includes('PODER') ||
-    text.includes('ACTA') ||
-    text.includes('PROMESA') ||
-    (text.includes('# ') && text.includes('##'))
+    text.includes('CONTRATO') || text.includes('CARTA') ||
+    text.includes('PODER') || text.includes('ACTA') ||
+    text.includes('PROMESA') || (text.includes('# ') && text.includes('##'))
   )
+}
+
+// ── Markdown → HTML para impresión ───────────────────────────────────────────
+// Convierte el markdown del documento a HTML limpio para el PDF/print
+
+function markdownToHtml(md: string): string {
+  return md
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^---+$/gm, '<hr/>')
+    .replace(/^\| (.+) \|$/gm, (_, row) => {
+      const cells = row.split(' | ').map((c: string) => `<td>${c}</td>`).join('')
+      return `<tr>${cells}</tr>`
+    })
+    .replace(/(<tr>.*<\/tr>\n?)+/gs, (table) => `<table>${table}</table>`)
+    .replace(/^(?!<[h|t|u|o|p|d])(.*\S.*)$/gm, '<p>$1</p>')
+    .replace(/<p><\/p>/g, '')
+}
+
+function downloadPDF(content: string, filename = 'documento-rimai') {
+  const html = markdownToHtml(content)
+  const printWindow = window.open('', '_blank', 'width=900,height=700')
+  if (!printWindow) return
+
+  printWindow.document.write(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>${filename}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Times New Roman', Times, serif;
+      font-size: 12pt;
+      line-height: 1.8;
+      color: #000;
+      background: #fff;
+      padding: 2.5cm 3cm;
+      max-width: 21cm;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 14pt;
+      font-weight: bold;
+      text-align: center;
+      text-transform: uppercase;
+      margin: 18pt 0 12pt;
+      letter-spacing: 0.5pt;
+    }
+    h2 {
+      font-size: 12pt;
+      font-weight: bold;
+      text-transform: uppercase;
+      margin: 14pt 0 6pt;
+      border-bottom: 1px solid #000;
+      padding-bottom: 3pt;
+    }
+    h3 {
+      font-size: 12pt;
+      font-weight: bold;
+      margin: 10pt 0 4pt;
+    }
+    p {
+      margin-bottom: 8pt;
+      text-align: justify;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #333;
+      margin: 14pt 0;
+    }
+    strong { font-weight: bold; }
+    em { font-style: italic; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10pt 0;
+      font-size: 11pt;
+    }
+    td, th {
+      border: 1px solid #444;
+      padding: 5pt 8pt;
+      text-align: left;
+    }
+    .footer {
+      margin-top: 40pt;
+      font-size: 8pt;
+      color: #666;
+      text-align: center;
+      border-top: 1px solid #ccc;
+      padding-top: 6pt;
+    }
+    @media print {
+      body { padding: 0; }
+      .footer { position: fixed; bottom: 0; width: 100%; }
+      @page { margin: 2.5cm 3cm; size: A4; }
+    }
+  </style>
+</head>
+<body>
+  ${html}
+  <div class="footer">Borrador generado por RimAI · Para efectos legales definitivos, consulte con un abogado certificado</div>
+  <script>
+    window.onload = function() {
+      setTimeout(function() { window.print(); }, 300);
+    };
+  </script>
+</body>
+</html>`)
+  printWindow.document.close()
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function DocumentsPage() {
-  const [messages, setMessages]           = useState<Message[]>([])
-  const [input, setInput]                 = useState('')
-  const [loading, setLoading]             = useState(false)
-  const [sessionId]                       = useState(() => `builder-${Date.now()}`)
-  const [files, setFiles]                 = useState<UploadedFile[]>([])
-  const [uploading, setUploading]         = useState(false)
-  const [copied, setCopied]               = useState<string | null>(null)
-  const [dragOver, setDragOver]           = useState(false)
+  const [messages, setMessages]             = useState<Message[]>([])
+  const [input, setInput]                   = useState('')
+  const [loading, setLoading]               = useState(false)
+  const [sessionId]                         = useState(() => `builder-${Date.now()}`)
+  const [files, setFiles]                   = useState<UploadedFile[]>([])
+  const [uploading, setUploading]           = useState(false)
+  const [copied, setCopied]                 = useState<string | null>(null)
+  const [dragOver, setDragOver]             = useState(false)
   const [pendingFileIds, setPendingFileIds] = useState<string[]>([])
 
-  // Canvas state
+  // Canvas
   const [documentContent, setDocumentContent] = useState<string | null>(null)
   const [isEditing, setIsEditing]             = useState(false)
   const [editedContent, setEditedContent]     = useState('')
@@ -76,6 +186,7 @@ export default function DocumentsPage() {
   const bottomRef    = useRef<HTMLDivElement>(null)
   const inputRef     = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const docRef       = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -87,9 +198,7 @@ export default function DocumentsPage() {
     if (!fileList || fileList.length === 0) return
     setUploading(true)
     try {
-      const results = await Promise.all(
-        Array.from(fileList).map(f => uploadDocumentFile(f, sessionId))
-      )
+      const results = await Promise.all(Array.from(fileList).map(f => uploadDocumentFile(f, sessionId)))
       setFiles(prev => [...prev, ...results])
       setPendingFileIds(prev => [...prev, ...results.map(r => r.file_id)])
     } catch { /* silent */ }
@@ -97,8 +206,7 @@ export default function DocumentsPage() {
   }
 
   function handleDrop(e: React.DragEvent) {
-    e.preventDefault()
-    setDragOver(false)
+    e.preventDefault(); setDragOver(false)
     handleFiles(e.dataTransfer.files)
   }
 
@@ -107,7 +215,7 @@ export default function DocumentsPage() {
     setPendingFileIds(prev => prev.filter(id => id !== fileId))
   }
 
-  // ── Chat send ───────────────────────────────────────────────────────────────
+  // ── Chat ────────────────────────────────────────────────────────────────────
 
   async function handleSend() {
     const text = input.trim()
@@ -115,7 +223,6 @@ export default function DocumentsPage() {
 
     const attachedIds = [...pendingFileIds]
     setPendingFileIds([])
-
     setMessages(prev => [...prev, { id: uid(), role: 'user', text, ts: new Date() }])
     setInput('')
     setLoading(true)
@@ -131,34 +238,23 @@ export default function DocumentsPage() {
       (token) => {
         accumulated += token
         const isDoc = isDocumentContent(accumulated)
-
         if (isDoc && !docDetected) {
           docDetected = true
-          // Abrir canvas con el documento
           setDocumentContent(accumulated)
           setEditedContent(accumulated)
           setCanvasOpen(true)
         }
-
         if (docDetected) {
-          // Actualizar canvas en tiempo real
           setDocumentContent(accumulated)
           if (!isEditing) setEditedContent(accumulated)
-          // En el chat solo mostramos el indicador
-          setMessages(prev => prev.map(m =>
-            m.id === aiId ? { ...m, text: accumulated, isDocument: true } : m
-          ))
+          setMessages(prev => prev.map(m => m.id === aiId ? { ...m, text: accumulated, isDocument: true } : m))
         } else {
-          setMessages(prev => prev.map(m =>
-            m.id === aiId ? { ...m, text: accumulated } : m
-          ))
+          setMessages(prev => prev.map(m => m.id === aiId ? { ...m, text: accumulated } : m))
         }
       },
       () => { setLoading(false); inputRef.current?.focus() },
-      (_err) => {
-        setMessages(prev => prev.map(m =>
-          m.id === aiId ? { ...m, text: '⚠️ Error conectando con el backend.' } : m
-        ))
+      () => {
+        setMessages(prev => prev.map(m => m.id === aiId ? { ...m, text: '⚠️ Error conectando con el backend.' } : m))
         setLoading(false)
       },
     )
@@ -166,30 +262,13 @@ export default function DocumentsPage() {
 
   async function handleClear() {
     await clearBuilderSession(sessionId).catch(() => null)
-    setMessages([])
-    setFiles([])
-    setPendingFileIds([])
-    setDocumentContent(null)
-    setEditedContent('')
-    setCanvasOpen(false)
-    setIsEditing(false)
+    setMessages([]); setFiles([]); setPendingFileIds([])
+    setDocumentContent(null); setEditedContent(''); setCanvasOpen(false); setIsEditing(false)
   }
 
   async function handleCopy(text: string, id: string) {
     await navigator.clipboard.writeText(text).catch(() => null)
-    setCopied(id)
-    setTimeout(() => setCopied(null), 2000)
-  }
-
-  function handleDownload() {
-    const content = isEditing ? editedContent : (documentContent ?? '')
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `documento-rimai-${Date.now()}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
+    setCopied(id); setTimeout(() => setCopied(null), 2000)
   }
 
   function handleKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -203,14 +282,13 @@ export default function DocumentsPage() {
   return (
     <div className="flex h-screen bg-gray-950 text-white overflow-hidden">
 
-      {/* ── Left panel: files ─────────────────────────────────────────────── */}
+      {/* ── Left: file panel ──────────────────────────────────────────────── */}
       <aside className="w-64 border-r border-[#2d1f5e] flex flex-col shrink-0">
         <div className="p-4 border-b border-[#2d1f5e] flex items-center gap-2">
           <ScrollText size={15} className="text-rimai-400" />
           <h2 className="text-sm font-semibold text-white flex-1">Archivos adjuntos</h2>
         </div>
 
-        {/* Drop zone */}
         <div className="p-3">
           <div
             onDragOver={e => { e.preventDefault(); setDragOver(true) }}
@@ -232,36 +310,25 @@ export default function DocumentsPage() {
             onChange={e => handleFiles(e.target.files)} />
         </div>
 
-        {/* File list */}
         <div className="flex-1 overflow-y-auto px-3 space-y-1.5">
           {files.length === 0 && (
-            <p className="text-xs text-rimai-600 text-center py-3">
-              Sube una cédula, contrato<br />o cualquier documento.
-            </p>
+            <p className="text-xs text-rimai-600 text-center py-3">Sube una cédula, contrato<br />o cualquier documento.</p>
           )}
           {files.map(f => (
             <div key={f.file_id} className="bg-[#12093a] border border-[#2d1f5e] rounded-lg p-2 flex gap-2">
               <div className="shrink-0 mt-0.5">
-                {f.content_type === 'image'
-                  ? <ImageIcon size={12} className="text-rimai-400" />
-                  : <FileText size={12} className="text-rimai-400" />
-                }
+                {f.content_type === 'image' ? <ImageIcon size={12} className="text-rimai-400" /> : <FileText size={12} className="text-rimai-400" />}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-rimai-200 truncate">{f.filename}</p>
                 <p className="text-xs text-rimai-600">{fmtBytes(f.size_bytes)}</p>
-                {pendingFileIds.includes(f.file_id) && (
-                  <span className="text-xs text-rimai-400">· pendiente</span>
-                )}
+                {pendingFileIds.includes(f.file_id) && <span className="text-xs text-rimai-500">· pendiente</span>}
               </div>
-              <button onClick={() => removeFile(f.file_id)} className="shrink-0 text-rimai-600 hover:text-red-400">
-                <X size={11} />
-              </button>
+              <button onClick={() => removeFile(f.file_id)} className="shrink-0 text-rimai-600 hover:text-red-400"><X size={11} /></button>
             </div>
           ))}
         </div>
 
-        {/* Session */}
         <div className="p-3 border-t border-[#2d1f5e] space-y-2">
           <div className="bg-[#12093a] border border-[#2d1f5e] rounded-lg p-2 space-y-1">
             <div className="flex justify-between text-xs">
@@ -280,37 +347,32 @@ export default function DocumentsPage() {
         </div>
       </aside>
 
-      {/* ── Chat area ─────────────────────────────────────────────────────── */}
+      {/* ── Center: chat ──────────────────────────────────────────────────── */}
       <div className={`flex flex-col min-w-0 transition-all duration-300 ${canvasOpen ? 'w-[380px] shrink-0' : 'flex-1'}`}>
 
-        {/* Header */}
         <div className="px-4 py-3 border-b border-[#2d1f5e] flex items-center gap-2 shrink-0">
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-white truncate">Constructor de Documentos</p>
             <p className="text-xs text-rimai-400">Conversa · el agente recolecta datos y genera</p>
           </div>
           {documentContent && (
-            <button onClick={() => setCanvasOpen(v => !v)} title="Ver documento"
+            <button onClick={() => setCanvasOpen(v => !v)}
               className={`p-1.5 rounded-lg transition-colors ${canvasOpen ? 'bg-rimai-800 text-rimai-300' : 'text-rimai-500 hover:text-rimai-300 hover:bg-[#1a1335]'}`}>
               <PanelRight size={15} />
             </button>
           )}
-          <button onClick={handleClear} title="Nueva sesión"
-            className="p-1.5 rounded-lg text-rimai-500 hover:text-rimai-300 hover:bg-[#1a1335] transition-colors">
+          <button onClick={handleClear} className="p-1.5 rounded-lg text-rimai-500 hover:text-rimai-300 hover:bg-[#1a1335] transition-colors">
             <Trash2 size={15} />
           </button>
         </div>
 
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-rimai-600">
               <FileUp size={36} className="text-rimai-700" />
               <div className="text-center">
                 <p className="text-sm text-rimai-400 font-medium">Constructor conversacional</p>
-                <p className="text-xs mt-1 max-w-[220px]">
-                  Dile qué documento necesitas. El agente te irá pidiendo los datos uno a uno.
-                </p>
+                <p className="text-xs mt-1 max-w-[220px]">Dile qué documento necesitas. El agente te irá pidiendo los datos uno a uno.</p>
               </div>
               <div className="grid grid-cols-1 gap-1.5 w-full mt-1">
                 {EXAMPLE_STARTS.map(q => (
@@ -328,7 +390,6 @@ export default function DocumentsPage() {
               {msg.role === 'ai' && (
                 <div className="w-6 h-6 rounded-full bg-rimai-800 flex items-center justify-center text-xs font-bold text-rimai-200 shrink-0 mt-1">R</div>
               )}
-
               <div className={`rounded-xl px-3 py-2.5 text-sm leading-relaxed relative
                 ${msg.role === 'user'
                   ? 'max-w-[85%] bg-rimai-700 text-white rounded-tr-sm'
@@ -336,16 +397,12 @@ export default function DocumentsPage() {
                     ? 'w-full bg-[#1a1335] border border-rimai-700/40 text-rimai-100 rounded-tl-sm'
                     : 'max-w-[85%] bg-[#1a1335] border border-[#2d1f5e] text-rimai-100 rounded-tl-sm'
                 }`}>
-
                 {msg.role === 'ai' && !msg.isDocument && (
                   <p className="text-xs text-rimai-400 mb-1 font-medium">RimAI · Documentos</p>
                 )}
-
                 {msg.isDocument ? (
-                  <button
-                    onClick={() => setCanvasOpen(true)}
-                    className="flex items-center gap-2 text-rimai-300 hover:text-white transition-colors"
-                  >
+                  <button onClick={() => setCanvasOpen(true)}
+                    className="flex items-center gap-2 text-rimai-300 hover:text-white transition-colors">
                     <FileText size={14} className="text-rimai-400 shrink-0" />
                     <span className="text-xs font-medium">Documento generado — Ver en canvas</span>
                     <ChevronRight size={13} className="text-rimai-500" />
@@ -353,11 +410,8 @@ export default function DocumentsPage() {
                 ) : (
                   <p className="whitespace-pre-wrap text-xs leading-relaxed">{msg.text}</p>
                 )}
-
                 <div className="flex items-center justify-between mt-1 gap-2">
-                  <p className={`text-xs ${msg.role === 'user' ? 'text-rimai-300' : 'text-rimai-600'}`}>
-                    {fmtTime(msg.ts)}
-                  </p>
+                  <p className={`text-xs ${msg.role === 'user' ? 'text-rimai-300' : 'text-rimai-600'}`}>{fmtTime(msg.ts)}</p>
                   {msg.role === 'ai' && !msg.isDocument && msg.text && (
                     <button onClick={() => handleCopy(msg.text, msg.id)}
                       className="opacity-0 group-hover:opacity-100 transition-opacity text-rimai-500 hover:text-rimai-300">
@@ -366,7 +420,6 @@ export default function DocumentsPage() {
                   )}
                 </div>
               </div>
-
               {msg.role === 'user' && (
                 <div className="w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-200 shrink-0 mt-1">U</div>
               )}
@@ -388,7 +441,6 @@ export default function DocumentsPage() {
           <div ref={bottomRef} />
         </div>
 
-        {/* Input */}
         <div className="px-4 py-3 border-t border-[#2d1f5e] shrink-0">
           {pendingFileIds.length > 0 && (
             <div className="mb-2 flex items-center gap-1.5 text-xs text-rimai-400">
@@ -402,17 +454,12 @@ export default function DocumentsPage() {
               <Upload size={14} />
             </button>
             <textarea
-              ref={inputRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKey}
-              placeholder="Dile qué documento necesitas..."
-              rows={1}
+              ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKey} placeholder="Dile qué documento necesitas..." rows={1}
               style={{ resize: 'none' }}
               className="flex-1 bg-transparent text-xs text-white placeholder-rimai-600 focus:outline-none min-h-[20px] max-h-28 overflow-y-auto leading-5"
               onInput={e => {
-                const el = e.currentTarget
-                el.style.height = 'auto'
+                const el = e.currentTarget; el.style.height = 'auto'
                 el.style.height = Math.min(el.scrollHeight, 112) + 'px'
               }}
             />
@@ -424,67 +471,158 @@ export default function DocumentsPage() {
         </div>
       </div>
 
-      {/* ── Document Canvas ────────────────────────────────────────────────── */}
+      {/* ── Right: Document Canvas (Word-style) ───────────────────────────── */}
       {canvasOpen && documentContent && (
-        <div className="flex-1 border-l border-[#2d1f5e] flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 bg-[#e8e8e8]">
 
-          {/* Canvas header */}
-          <div className="px-5 py-3 border-b border-[#2d1f5e] flex items-center gap-2 shrink-0">
-            <FileText size={15} className="text-rimai-400 shrink-0" />
-            <p className="text-sm font-semibold text-white flex-1">Documento generado</p>
+          {/* Toolbar — Word-style */}
+          <div className="bg-white border-b border-gray-300 px-4 py-2 flex items-center gap-2 shrink-0 shadow-sm">
+            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+              <FileText size={15} className="text-gray-500 shrink-0" />
+              <p className="text-sm font-medium text-gray-700 truncate">Documento generado</p>
+              <span className="text-xs text-gray-400 ml-1">· borrador RimAI</span>
+            </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
               {isEditing ? (
-                <button onClick={() => { setDocumentContent(editedContent); setIsEditing(false) }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-rimai-700 hover:bg-rimai-600 text-white rounded-lg text-xs transition-colors">
+                <button
+                  onClick={() => { setDocumentContent(editedContent); setIsEditing(false) }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-rimai-700 hover:bg-rimai-600 text-white rounded text-xs font-medium transition-colors"
+                >
                   <Save size={12} /> Guardar
                 </button>
               ) : (
-                <button onClick={() => { setEditedContent(documentContent); setIsEditing(true) }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 border border-[#2d1f5e] hover:border-rimai-600 text-rimai-300 rounded-lg text-xs transition-colors">
+                <button
+                  onClick={() => { setEditedContent(displayDoc); setIsEditing(true) }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 rounded text-xs font-medium transition-colors"
+                >
                   <Pencil size={12} /> Editar
                 </button>
               )}
-              <button onClick={handleDownload}
-                className="flex items-center gap-1.5 px-3 py-1.5 border border-[#2d1f5e] hover:border-rimai-600 text-rimai-300 rounded-lg text-xs transition-colors">
-                <Download size={12} /> Descargar
+
+              <button
+                onClick={() => downloadPDF(displayDoc, 'documento-rimai')}
+                className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 rounded text-xs font-medium transition-colors"
+              >
+                <FileDown size={12} /> Descargar PDF
               </button>
-              <button onClick={() => handleCopy(displayDoc, 'canvas')}
-                className="p-1.5 border border-[#2d1f5e] hover:border-rimai-600 text-rimai-400 hover:text-rimai-200 rounded-lg transition-colors">
-                {copied === 'canvas' ? <Check size={13} className="text-green-400" /> : <Copy size={13} />}
+
+              <button
+                onClick={() => handleCopy(displayDoc, 'canvas')}
+                title="Copiar texto"
+                className="p-1.5 border border-gray-300 bg-white hover:bg-gray-50 text-gray-500 rounded transition-colors"
+              >
+                {copied === 'canvas' ? <Check size={13} className="text-green-600" /> : <Copy size={13} />}
               </button>
             </div>
           </div>
 
-          {/* Canvas body */}
-          <div className="flex-1 overflow-y-auto">
+          {/* Document area */}
+          <div className="flex-1 overflow-y-auto py-8 px-6">
             {isEditing ? (
-              <textarea
-                value={editedContent}
-                onChange={e => setEditedContent(e.target.value)}
-                className="w-full h-full bg-[#0d0826] text-rimai-100 text-sm font-mono leading-relaxed p-6 focus:outline-none resize-none"
-                spellCheck={false}
-              />
+              /* Edit mode: plain textarea over white paper */
+              <div className="max-w-[21cm] mx-auto bg-white shadow-[0_2px_12px_rgba(0,0,0,0.18)] min-h-[29.7cm]">
+                <textarea
+                  value={editedContent}
+                  onChange={e => setEditedContent(e.target.value)}
+                  className="w-full min-h-[29.7cm] bg-transparent text-gray-900 text-[12pt] font-serif leading-relaxed p-[2.5cm] focus:outline-none resize-none"
+                  spellCheck={false}
+                  style={{ fontFamily: "'Times New Roman', Times, serif" }}
+                />
+              </div>
             ) : (
-              <div className="p-6 lg:p-8 max-w-3xl mx-auto">
-                <div className="prose prose-invert prose-sm max-w-none
-                  prose-headings:text-white prose-headings:font-bold prose-headings:border-b prose-headings:border-[#2d1f5e] prose-headings:pb-2
-                  prose-h1:text-base prose-h2:text-sm prose-h3:text-xs
-                  prose-p:text-rimai-100 prose-p:leading-relaxed
-                  prose-strong:text-white prose-strong:font-semibold
-                  prose-hr:border-[#2d1f5e]
-                  prose-ul:text-rimai-100 prose-li:text-rimai-100">
-                  <ReactMarkdown>{displayDoc}</ReactMarkdown>
+              /* View mode: rendered Word-style document */
+              <div
+                ref={docRef}
+                className="max-w-[21cm] mx-auto bg-white shadow-[0_2px_12px_rgba(0,0,0,0.18)] min-h-[29.7cm] px-[3cm] py-[2.5cm]"
+              >
+                <div
+                  className="document-body"
+                  style={{
+                    fontFamily: "'Times New Roman', Times, serif",
+                    fontSize: '12pt',
+                    lineHeight: '1.8',
+                    color: '#000',
+                  }}
+                >
+                  <ReactMarkdown
+                    components={{
+                      h1: ({ children }) => (
+                        <h1 style={{
+                          fontSize: '14pt', fontWeight: 'bold', textAlign: 'center',
+                          textTransform: 'uppercase', margin: '18pt 0 12pt',
+                          letterSpacing: '0.5pt', fontFamily: 'inherit',
+                        }}>{children}</h1>
+                      ),
+                      h2: ({ children }) => (
+                        <h2 style={{
+                          fontSize: '12pt', fontWeight: 'bold', textTransform: 'uppercase',
+                          margin: '14pt 0 6pt', borderBottom: '1px solid #000',
+                          paddingBottom: '3pt', fontFamily: 'inherit',
+                        }}>{children}</h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 style={{
+                          fontSize: '12pt', fontWeight: 'bold',
+                          margin: '10pt 0 4pt', fontFamily: 'inherit',
+                        }}>{children}</h3>
+                      ),
+                      p: ({ children }) => (
+                        <p style={{
+                          marginBottom: '8pt', textAlign: 'justify',
+                          fontFamily: 'inherit', fontSize: '12pt',
+                        }}>{children}</p>
+                      ),
+                      strong: ({ children }) => (
+                        <strong style={{ fontWeight: 'bold' }}>{children}</strong>
+                      ),
+                      em: ({ children }) => (
+                        <em style={{ fontStyle: 'italic', color: '#555' }}>{children}</em>
+                      ),
+                      hr: () => (
+                        <hr style={{ border: 'none', borderTop: '1px solid #333', margin: '14pt 0' }} />
+                      ),
+                      table: ({ children }) => (
+                        <table style={{
+                          width: '100%', borderCollapse: 'collapse',
+                          margin: '10pt 0', fontSize: '11pt', fontFamily: 'inherit',
+                        }}>{children}</table>
+                      ),
+                      td: ({ children }) => (
+                        <td style={{
+                          border: '1px solid #444', padding: '5pt 8pt',
+                          textAlign: 'left', verticalAlign: 'top',
+                        }}>{children}</td>
+                      ),
+                      th: ({ children }) => (
+                        <th style={{
+                          border: '1px solid #444', padding: '5pt 8pt',
+                          textAlign: 'left', fontWeight: 'bold', background: '#f5f5f5',
+                        }}>{children}</th>
+                      ),
+                      blockquote: ({ children }) => (
+                        <blockquote style={{
+                          borderLeft: '3px solid #ccc', paddingLeft: '12pt',
+                          margin: '10pt 0', color: '#555', fontStyle: 'italic',
+                        }}>{children}</blockquote>
+                      ),
+                    }}
+                  >
+                    {displayDoc}
+                  </ReactMarkdown>
+                </div>
+
+                {/* Footer del documento */}
+                <div style={{
+                  marginTop: '40pt', paddingTop: '8pt',
+                  borderTop: '1px solid #ccc', fontFamily: 'inherit',
+                }}>
+                  <p style={{ fontSize: '8pt', color: '#888', textAlign: 'center', fontFamily: 'inherit' }}>
+                    Borrador orientativo generado por RimAI · Para efectos legales definitivos, consulte con un abogado certificado
+                  </p>
                 </div>
               </div>
             )}
-          </div>
-
-          {/* Canvas footer */}
-          <div className="px-5 py-2.5 border-t border-[#2d1f5e] shrink-0">
-            <p className="text-xs text-rimai-600 text-center">
-              Borrador orientativo generado por IA · Consulta con un abogado para efectos legales definitivos
-            </p>
           </div>
         </div>
       )}
