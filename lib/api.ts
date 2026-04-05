@@ -135,6 +135,21 @@ export async function clearBuilderSession(sessionId: string) {
   return fetchAPI(`/api/v1/documents/builder/${sessionId}`, { method: 'DELETE' })
 }
 
+// ── Dashboard Stats ───────────────────────────────────────────────────────────
+export interface DashboardStats {
+  queries_week: number
+  queries_change: number
+  documents_week: number
+  users_total: number
+  chart_data: { day: string; consultas: number; date: string }[]
+  query_breakdown: Record<string, number>
+  recent_activity: { text: string; time: string; type: string }[]
+}
+
+export async function getDashboardStats(): Promise<DashboardStats> {
+  return fetchAPI('/api/v1/internal/stats/dashboard')
+}
+
 // ── Team Agents ───────────────────────────────────────────────────────────────
 export async function runTeamTask(team: string, description: string, context?: Record<string, unknown>) {
   return fetchAPI('/api/v1/internal/team/task', {
