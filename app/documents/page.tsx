@@ -66,7 +66,7 @@ function markdownToHtml(md: string): string {
       const cells = row.split(' | ').map((c: string) => `<td>${c}</td>`).join('')
       return `<tr>${cells}</tr>`
     })
-    .replace(/(<tr>.*<\/tr>\n?)+/gs, (table) => `<table>${table}</table>`)
+    .replace(/(<tr>[\s\S]*?<\/tr>\n?)+/gm, (table) => `<table>${table}</table>`)
     .replace(/^(?!<[h|t|u|o|p|d])(.*\S.*)$/gm, '<p>$1</p>')
     .replace(/<p><\/p>/g, '')
 }
