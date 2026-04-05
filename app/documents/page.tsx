@@ -6,6 +6,12 @@ import {
   FileDown, Pencil, Save, ChevronRight, PanelRight, Printer
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
+import {
+  Document, Packer, Paragraph, TextRun, HeadingLevel,
+  AlignmentType, BorderStyle, Table, TableRow, TableCell,
+  WidthType, UnderlineType,
+} from 'docx'
+import { saveAs } from 'file-saver'
 import { uploadDocumentFile, streamBuilderMessage, clearBuilderSession } from '@/lib/api'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -162,6 +168,160 @@ function downloadPDF(content: string, filename = 'documento-rimai') {
 </body>
 </html>`)
   printWindow.document.close()
+}
+
+// ── Markdown → DOCX ──────────────────────────────────────────────────────────
+
+/** Parsea una línea con **bold** e *italic* en TextRuns */
+function parseInline(text: string): TextRun[] {
+  const runs: TextRun[] = []
+  // Tokenizar **bold**, *italic*, texto normal
+  const re = /(\*\*(.+?)\*\*|\*(.+?)\*|([^*]+))/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    if (m[2]) runs.push(new TextRun({ text: m[2], bold: true, font: 'Times New Roman', size: 24 }))
+    else if (m[3]) runs.push(new TextRun({ text: m[3], italics: true, font: 'Times New Roman', size: 24 }))
+    else if (m[4]) runs.push(new TextRun({ text: m[4], font: 'Times New Roman', size: 24 }))
+  }
+  return runs.length ? runs : [new TextRun({ text, font: 'Times New Roman', size: 24 })]
+}
+
+async function downloadDocx(md: string, filename = 'documento-rimai') {
+  const lines = md.split('\n')
+  const children: (Paragraph | Table)[] = []
+
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+
+    // Heading 1
+    if (/^# (.+)/.test(line)) {
+      children.push(new Paragraph({
+        text: line.replace(/^# /, ''),
+        heading: HeadingLevel.HEADING_1,
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 240, after: 160 },
+      }))
+      i++; continue
+    }
+
+    // Heading 2
+    if (/^## (.+)/.test(line)) {
+      children.push(new Paragraph({
+        text: line.replace(/^## /, ''),
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 200, after: 100 },
+        border: { bottom: { color: '000000', space: 1, style: BorderStyle.SINGLE, size: 6 } },
+      }))
+      i++; continue
+    }
+
+    // Heading 3
+    if (/^### (.+)/.test(line)) {
+      children.push(new Paragraph({
+        text: line.replace(/^### /, ''),
+        heading: HeadingLevel.HEADING_3,
+        spacing: { before: 160, after: 80 },
+      }))
+      i++; continue
+    }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) {
+      children.push(new Paragraph({
+        border: { bottom: { color: '444444', style: BorderStyle.SINGLE, size: 4, space: 1 } },
+        spacing: { before: 160, after: 160 },
+        children: [],
+      }))
+      i++; continue
+    }
+
+    // Tabla: detectar bloque | col | col |
+    if (/^\|.+\|$/.test(line.trim())) {
+      const tableLines: string[] = []
+      while (i < lines.length && /^\|.+\|$/.test(lines[i].trim())) {
+        // Saltar línea separadora |---|---|
+        if (!/^[\|\s\-:]+$/.test(lines[i])) tableLines.push(lines[i])
+        i++
+      }
+      if (tableLines.length > 0) {
+        const rows = tableLines.map((tl, rowIdx) => {
+          const cells = tl.split('|').filter((_, ci) => ci > 0 && ci < tl.split('|').length - 1)
+          return new TableRow({
+            children: cells.map(cell => new TableCell({
+              children: [new Paragraph({
+                children: parseInline(cell.trim()),
+                spacing: { before: 40, after: 40 },
+              })],
+              width: { size: Math.floor(9360 / cells.length), type: WidthType.DXA },
+              shading: rowIdx === 0 ? { fill: 'F2F2F2' } : undefined,
+            })),
+          })
+        })
+        children.push(new Table({
+          rows,
+          width: { size: 9360, type: WidthType.DXA },
+        }))
+      }
+      continue
+    }
+
+    // Línea vacía → espacio
+    if (line.trim() === '') {
+      children.push(new Paragraph({ children: [], spacing: { after: 80 } }))
+      i++; continue
+    }
+
+    // Párrafo normal con inline formatting
+    children.push(new Paragraph({
+      children: parseInline(line),
+      alignment: AlignmentType.JUSTIFIED,
+      spacing: { before: 0, after: 100 },
+    }))
+    i++
+  }
+
+  // Footer / advertencia
+  children.push(new Paragraph({
+    children: [new TextRun({
+      text: 'Borrador orientativo generado por RimAI. Para efectos legales definitivos, consulte con un abogado certificado.',
+      italics: true, color: '888888', size: 18, font: 'Times New Roman',
+    })],
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 600 },
+    border: { top: { color: 'cccccc', style: BorderStyle.SINGLE, size: 4, space: 1 } },
+  }))
+
+  const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: 'Times New Roman', size: 24 },
+        },
+        heading1: {
+          run: { bold: true, size: 28, font: 'Times New Roman', allCaps: true },
+          paragraph: { alignment: AlignmentType.CENTER },
+        },
+        heading2: {
+          run: { bold: true, size: 24, font: 'Times New Roman', allCaps: true },
+        },
+        heading3: {
+          run: { bold: true, size: 24, font: 'Times New Roman' },
+        },
+      },
+    },
+    sections: [{
+      properties: {
+        page: {
+          margin: { top: 1418, bottom: 1418, left: 1701, right: 1701 }, // ~2.5cm/3cm
+        },
+      },
+      children,
+    }],
+  })
+
+  const blob = await Packer.toBlob(doc)
+  saveAs(blob, `${filename}.docx`)
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -504,7 +664,14 @@ export default function DocumentsPage() {
                 onClick={() => downloadPDF(displayDoc, 'documento-rimai')}
                 className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 rounded text-xs font-medium transition-colors"
               >
-                <FileDown size={12} /> Descargar PDF
+                <FileDown size={12} /> PDF
+              </button>
+
+              <button
+                onClick={() => downloadDocx(displayDoc, 'documento-rimai')}
+                className="flex items-center gap-1.5 px-3 py-1.5 border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs font-medium transition-colors"
+              >
+                <FileDown size={12} /> Word (.docx)
               </button>
 
               <button
